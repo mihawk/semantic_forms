@@ -1,0 +1,9 @@
+{application, semantic_forms, [
+    {description,  "SEMANTIC FORMS"},
+    {vsn,          "0.1"},
+    {applications, [kernel, stdlib]},
+    {modules, []},
+    {registered,   []},
+    {mod, { semantic_forms, []}},
+    {env, []}
+]}.
