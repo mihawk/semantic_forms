@@ -12,10 +12,12 @@
          multi_select/6,          
          multi_search_select/6,          
          dynamic/6,
-         date/6,number/6,hidden/6,
+         date/6,date_range/6,
+         number/6,hidden/6,
          currency/6,integer/6,
          float/6,
-         price/6,file/6,         
+         price/6,
+         file/6,         
          textarea/6,
          checkbox/6, 
          radio_checkbox/6,
@@ -39,18 +41,16 @@
 -include("meta.hrl").
 -define(SELECT, [select,search_select,linked_select,multi_select,multi_search_select]).
 
-start() -> ok.
-start(_) -> ok.
+start()    -> ok.
+start(_)   -> ok.
 start(_,_) -> {ok,self()}.
-stop(_) -> ok.
+stop(_)    -> ok.
 
 q(#document{name=Name,fields=Fields,sections=Sections}=Doc) -> 
     Secs = [{S#sec.id,S#sec.m}||S<-Sections],
-    %io:format("Secs map field ~p~n",[Secs]),
     {Attrs, Count} = lists:foldl(fun(#field{}=X,{Acc,Idx}) -> 
                        Field =wf:atom([Name, X#field.name]), 
                        Val = wf:q(Field),
-                       %wf:debug(?MODULE, "Field ~p:~p~n",[Field,Val]),
                         case proplists:get_value(X#field.sec, Secs) of
                           undefined -> {Acc#{X#field.name => Val}, Idx};
                           M         -> {add_prop(M, Acc, [{X#field.name, Val}]), Idx}
@@ -59,30 +59,23 @@ q(#document{name=Name,fields=Fields,sections=Sections}=Doc) ->
                        Cats = lists:foldl(fun(#field{}=Y,CatAcc) -> 
                                                   CatField =wf:atom([Name, Y#field.name]), 
                                                   CatVal = wf:q(CatField),
-                                                  %wf:debug(?MODULE, "cat Field ~p:~p~n",[CatField,CatVal]),
-                                                  %F = case catch n(Cat#cat.name,Idx,Y#field.name) of {'EXIT',Err} -> io:format("Err ~p~n",[Err]),Y#field.name; El->El end,
                                                   CatAcc#{ n(Cat#cat.name,Idx,Y#field.name) => CatVal} end, #{}, Cat#cat.fields),
                        case proplists:get_value(Cat#cat.sec, Secs) of
                           undefined -> {Acc#{Cat#cat.name => Cats},Idx+1};
                           M         -> {add_prop(M, Acc, [{Cat#cat.name, maps:to_list(Cats)}]), Idx+1}
                        end
-               end, {#{},1}, Fields),
-    Attrs.
+               end, {#{},1}, Fields), Attrs.
 
 %%FIXME
 add_prop(M, Maps, Prop) ->
-  case maps:get(M, Maps, undefined) of
-    undefined -> Maps#{M => Prop};
-    Old -> New = Old ++ Prop, Maps#{M => New}
-  end.
+  case maps:get(M, Maps, undefined) of undefined -> Maps#{M => Prop};
+    Old -> New = Old ++ Prop, Maps#{M => New} end.
 
 
 n(C,I,FN) -> 
  A = string:tokens(atom_to_list(C),"_") ++ [integer_to_list(I)],
  B = string:tokens(atom_to_list(FN),"_"),
- %io:format("A: ~p, B:~p ~n",[A,B]),
  wf:atom(B -- A).
-
 
 
 % n(N,I,F) -> n(N,F,n1(N,F)).
@@ -115,17 +108,7 @@ new(Document,Object) ->
       stepwizard(Name, StepWizard, {Translator, Lang}),
       render_fields(Name, Fields, Sections, Object, proplists:get_value(fields, Default), {Translator, Lang}),
       case proplists:get_value(render_buttons, Default, true) of true ->
-      formBtns(Name,Fields,Buttons,Translator, Lang); _ -> [] end
-      % lists:foldr(fun(#but{}=But,Acc) ->
-      %                 case But#but.sources of
-      %                     [fields] -> 
-      %                         Sources = sources(Name,Fields),
-      %                         [#button{id=But#but.id,class=But#but.class,postback=But#but.postback,body=Translator(Lang,But#but.title),
-      %                                   source=Sources}|Acc];
-      %                     _ -> [#button{id=But#but.id,class=But#but.class,postback=But#but.postback,body=Translator(Lang,But#but.title),
-      %                                   source=[wf:atom([Name,S])||S<-But#but.sources],onclick=But#but.onclick}|Acc] 
-      %                 end end,[],Buttons)
-    ]}.
+      formBtns(Name,Fields,Buttons,Translator, Lang); _ -> [] end]}.
 
 
 formBtns(Document) ->
@@ -512,13 +495,35 @@ float(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
 currency(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
   string(Name, X, ErrMsg, Class, Object, {Lookup, Lang}).
 
-date(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
+%FIXME
+date_range(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
   N=wf:atom([Name,X#field.name]),
+  Fmt  = "YYYY/MM/DD h:mm A",
+  Incr = 60, 
   Actions = wf:f("$('#~s').daterangepicker({"
-                "singleDatePicker: true"
+                "timePicker: true,"
+                "format: '~s',"
+                "timePickerIncrement: ~s"
             "}, function(start, end, label) {"
                 "console.log(start.toISOString(), end.toISOString(), label);"
-            "});",[N]),
+            "});",[N,Fmt,integer_to_list(Incr)]),
+  #input{ id=N, name=N, class=Class,
+          actions=Actions,
+          value=maps:get(X#field.name, Object, <<>>), 
+          placeholder=Lookup(Lang,X#field.ph)
+        }.
+
+%FIXME
+date(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
+  N=wf:atom([Name,X#field.name]),
+  Fmt = "YYYY/MM/DD h:mm A",
+  Actions = wf:f("$('#~s').daterangepicker({"
+                "singleDatePicker: true,"
+                "timePicker: true,"
+                "format: '~s'"
+            "}, function(start, end, label) {"
+                "console.log(start.toISOString(), end.toISOString(), label);"
+            "});",[N,Fmt]),
   #input{ id=N, name=N, class=Class,
           actions=Actions,
           value=maps:get(X#field.name, Object, <<>>), 
@@ -593,24 +598,6 @@ search_menu(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
   ]}
  ]}.
 
-% render_element(#upload{id=Id} = U) ->
-%     Uid = case Id of undefined -> wf:temp_id(); I -> I end,
-%     bind(ftp_open,  click,  "qi('upload').click(); e.preventDefault();"),
-%     bind(ftp_start, click,  "ftp.start();"),
-%     bind(ftp_stop,  click,  "ftp.stop();"),
-%     bind(nitro:to_atom(Uid), change, "ftp.init(this.files[0],1);"),
-%     Upload = #panel  { body = [
-%              #input  { id   = Uid,         type    = <<"file">>, style = "display:none" },
-%              #span   { id   = ftp_status,  body    = [] },
-%              #span   { body = [
-%              #button { id   = ftp_open,    body = "Browse" },
-%              #button { id   = ftp_start,   body = "Upload" },
-%              #button { id   = ftp_stop,    body = "Stop" }
-%     ] } ] }, wf:render(Upload).
-
-%<div data-percent="27" class="ui bottom attached progress">
-%    <div style="transition-duration: 300ms; width: 27%;" class="bar"></div>
-%</div>
 
 file(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
   Uid=wf:atom([Name,X#field.name]),
@@ -618,52 +605,29 @@ file(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
   bind(ftp_start, click, "ftp.start();"),
   bind(ftp_stop,  click, "ftp.stop();"),
   bind(ftp_cancel, click, wf:f("ftp.cancel();$('#~s').val('');",[Uid])),
-  bind(nitro:to_atom(Uid), change, wf:f("ftp.init(this.files[0],1,'~s');", [wf:session_id()])),
-  File =        
-         #panel{class=[ui,labeled,left,icon,input], body=[
-          #input  { id= Uid, name=Uid, class=Class, placeholder=Lookup(Lang,X#field.ph),type=file,
-                    value=maps:get(Uid, Object, <<>>)
-                  },         
-          #i      {                  class=X#field.icon},           
-          #panel  { id=ftp_status,   class=[ui,label], body=[<<>>]},
-          #panel  { class=[ui], style="padding:1px;", body=[
-           #panel  { class=[ui,small,basic,icon,buttons], body=[
-         %#button { id   = ftp_open,    body = [#i{class=[add,icon]}], class=[ui,icon,button]},
-             #button { id   = ftp_start,   body = [#i{class=[upload,icon]}], class=[ui,button]}
-            ,#button { id   = ftp_stop,    body = [#i{class=[stop,icon]}], class=[ui,button]}
-            ,#button { id   = ftp_cancel,  body = [#i{class=[cancel,icon]}], class=[ui,button]}         
-           ]}          
-          ]}
-         ]}, wf:render(File).
+  Actions = wf:f("$('input:text, #ftp_open.ui.button', '.ui.action.input')"
+                 ".on('click',function(e){$('input:file', $(e.target).parents()).click();});"
+                 "$('input:file', '.ui.action.input').on('change', function(e) {"
+                 "var name = e.target.files[0].name;"
+                 "$('input:text', $(e.target).parent()).val(name);"
+                 "ftp.init(this.files[0],1,$('input:text').val());"
+                 "$('#ftp_status').parent().show();"
+                 "});"
+                ,[]),
+  #panel{id=Uid, class=[ui,fluid,action,input], actions=Actions, body=[
+    #input{type=text, data_fields=[{readonly, <<>>}]}
+    ,#input{type= file, style=["display:none;"]}
+    ,#button{ class=[ui,green,icon,button], style=["display:none;width:5em;"], body=[#span{id=ftp_status,body=[]}]}
+    ,#button{id = ftp_open,class=[ui,green,icon,button], body=[#i{class=[file,icon]}]}
+    ,#button{id = ftp_start,class=[ui,green,icon,button], body=[#i{class=[upload,icon]}]}
+    ,#button{id = ftp_stop,class=[ui,green,icon,button], body=[#i{class=[stop,icon]}]}
+    ,#button{id = ftp_cancel,class=[ui,green,icon,button], body=[#i{class=[cancel,icon]}]}       
+  ]}.
 
 bind(Control,Event,Code) ->
     wf:wire(#bind{target=Control,type=Event,postback=Code}).  
 
 
-files(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
-  N=wf:atom([Name,X#field.name]),
-  #panel{class=[container,segment], body=[
-    #panel{id=N, class=X#field.iClass, body=[
-     #button{class=[ui,button], postback={add,file}, body=[#i{class=[add,icon]},#i{class=[file,icon]}]}
-     %#button{class=[ui,button], body=[#i{class=[save,icon]}]},
-     %#button{class=[ui,button], body=[#i{class=[upload,icon]}]},     
-     %#button{class=[ui,button], body=[#i{class=[download,icon]}]}     
-    ]},
-    #panel{id=wf:atom([N,content])}
-     #panel{class=[ui,action,input], body=[
-      #upload{name=wf:atom([N,files])}
-     % #input{id=N, class=Class, type=file,
-     %         value=maps:get(N, Object, <<>>),
-     %          %%filesize not over limit
-     %          %validation=wf:f("Validation.length(e,'~s', ~w, ~w)",[Lookup(Lang,ErrMsg), X#field.min,X#field.max]),
-     %          %onkeypress="return removeAllErrorsFromInput(this);", 
-     %         placeholder=Lookup(Lang,X#field.ph)
-     %       }
-
-    ]}
-  ]}.
-
-%%FIXME
 hidden(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
   N=wf:atom([Name,X#field.name]),
   #input{ id=N, name=N, class=Class,type=hidden,
@@ -672,11 +636,10 @@ hidden(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
         }.
 
 readonly(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
-  io:format("READONLY ~n"),
   N=wf:atom([Name,X#field.name]),
   #input{ id=N, name=N, class=Class, 
           value=maps:get(X#field.name, Object, <<>>), 
-          data_fields=[{readonly,"true"}],
+          data_fields=[{readonly,<<>>}],
           placeholder=Lookup(Lang,X#field.ph)
         }.
 
@@ -891,42 +854,9 @@ render_cat(Name, [#field{}=X|_]=L, [H|Tail]=Sections, PrevSec, Object, Default, 
 
 
 r_fields(Name, Fields, Object, Default, {Lookup,Lang}) ->
-    lists:foldl(    % empty
+    lists:foldl(
+    fun (#field{}=X,Acc) ->
 
-    fun 
-        % (#field{type=empty}=X1,Acc) ->
-        %     [#panel{class=box, style="display:none;",id=wf:atom([X1#field.name,Name])}|Acc];
-
-        % (#field{type=card,name=[Name1,Name2,Name3]}=X2,Acc) ->
-        %     [#panel { id=wf:atom([Name1,Name]), class=[box,pad0], body=[
-        %         #panel { class=label, body = X2#field.title},
-        %         #panel { class=field, style="width:66.63%", body=
-        %             #panel {id=wf:atom([Name2,Name]), body=[
-        %                 #panel{class=field,style="width:90%;", body =
-        %                     #select{id=wf:atom([Name3, Name]), disabled=true, validation="Validation.card(e)",
-        %                             body= #option{selected=true, body="loading"}}},
-        %                 #panel { class=tool, body= [#image{src="/static/app/img/preloader.gif"}]}
-        %             ]}}
-        %      ]}|Acc];
-
-        % (#field{name=Name}=X2,Acc) ->
-        %     [#panel { class=[field], body=[
-        %         #label { body = X2#field.title},
-        %         #input { id=wf:atom(Name), class=field, placeholder=X2#field.ph, body=[]}
-        %      ]}|Acc]
-
-
-        (#field{}=X,Acc) ->
-
-            % Tooltips = [
-            %     case Tx of
-            %         {N} -> #panel{id=wf:atom([tooltip,N,Name]), body=[]};
-            %         _ -> #link { class=tooltips, tabindex="-1", onmouseover="setHeight(this);", body=[
-            %                 #image { src= "/static/app/img/question.png" },
-            %                 #span  { body=Tx } ]}
-            %     end
-            %     || Tx <- lists:reverse(X#field.tooltips) ],
-        
             IClass = case X#field.iClass of [] -> proplists:get_value(iClass, Default, []); _-> X#field.iClass end,
             FClass = case X#field.fClass of [] -> proplists:get_value(fClass, Default, [field]); _-> X#field.fClass end,
             Class = case X#field.class of [] -> proplists:get_value(class, Default, []); _-> X#field.class end,
@@ -937,34 +867,28 @@ r_fields(Name, Fields, Object, Default, {Lookup,Lang}) ->
             Input = ?MODULE:(X#field.type)(Name, X, ErrMsg, Class, Object, {Lookup,Lang}),
             Icon = case X#field.icon of [] -> []; _ -> #i{class=X#field.icon} end,
 
-                    %% case Icon of [] -> [#panel { class=FClass, body =[Label,Input]} | Acc];
-                    %% _ -> [#panel { class=FClass, body =[Label,#panel{class=Class, body=[Input,Icon]}]} | Acc] end
-
             case lists:member(X#field.type, [files,file,price,multi_search_select,
                                              multi_select,search_select,select,multi_search_select,
                                              textarea,checkbox,radio_checkbox,search_menu]) of 
                 true -> 
                     [#panel { class=FClass, body=[Label,Input]}|Acc]; 
                 false ->
-                    %% case X#field.tooltips of [] -> []; 
-                    %% _ -> #panel{class=[ui,red,pointing,prompt,label,transition,hidden],body=Lookup(Lang,X#field.tooltips)} end,    
-                    %% ],
                     case Icon of [] -> [#panel { class=FClass, body =[Label,Input]} | Acc];
                     _ -> [#panel { class=FClass, body =[Label,#panel{class=Class, body=[Input,Icon]}]} | Acc] end
             end
 end,
 [], Fields).
 
-sem(0) -> zero;
-sem(1) -> one;
-sem(2) -> two;
-sem(3) -> three;
-sem(4) -> four;
-sem(5) -> five;
-sem(6) -> six;
-sem(7) -> seven;
-sem(8) -> height;
-sem(9) -> nine;
+sem( 0) -> zero;
+sem( 1) -> one;
+sem( 2) -> two;
+sem( 3) -> three;
+sem( 4) -> four;
+sem( 5) -> five;
+sem( 6) -> six;
+sem( 7) -> seven;
+sem( 8) -> height;
+sem( 9) -> nine;
 sem(10) -> ten;
 sem(11) -> eleven;
 sem(12) -> twelve;
