@@ -410,16 +410,6 @@ init(#document{}=D,Obj, Init) ->
     wf:info(?MODULE,"init:~p",[Init++Init0]),
     wf:wire(Init ++ Init0) end.
 
-render_options({Taxonomy, List}, Lookup, Lang) ->
- [begin 
-  Items = [begin T=case O#opt.title of [] -> Lookup(Lang,O#opt.name); _-> Lookup(Lang,O#opt.title) end,
-            #link{class=[item],data_fields=[{'data-value',O#opt.name},{'data-text',T}]} 
-           end|| O <- onthology:Taxonomy(Cat)],
-        #panel{class=[column], body=[
-         #h4{class=[ui,header], body=[Cat]},
-         #panel{class=[ui,link,list], body=[Items]}
-        ]} end || Cat <- List];
-
 render_options(Opts, Lookup, Lang) ->
   [begin 
     T=case O#opt.title of [] -> Lookup(Lang,O#opt.name); _-> Lookup(Lang,O#opt.title) end,
