@@ -17,4 +17,36 @@
                      postfun=[], desc, type=string, etc, label=[], labelClass=[], class=[], fClass=[], iClass=[], boxClass=box, ph="",
                      access, tooltips=[], options=[], postback, errMsg=[], rules=[], optional=false}).
 -record(rule, {name, min, max, exac, pattern=[], target, prompt=[]}).
+
+-record(drp,{
+          singleDatePicker=false, 
+          timePicker=false, 
+          timePickerIncrement, 
+          format="YYYY/MM/DD h:mm A", 
+          startDate,
+          endDate,
+          minDate,
+          dateLimit,
+          showDropdowns,
+          showWeekNumbers,
+          timePicker12Hour,
+          ranges,
+          opens='left',
+          buttonClasses = "ui compact button",
+          cancelClass,
+          separator,
+          locale
+          }).
+
+-record(drpl,{
+   applyLabel = "Submit",
+   cancelLabel= "Clear",
+   fromLabel  = "From",
+   toLable    = "to",
+   customRangeLabel = "Custom",
+   daysOfWeek = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"],
+   monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+   firstDay = 1
+  }).
+  
 -endif.

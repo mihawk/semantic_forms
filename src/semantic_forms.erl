@@ -488,12 +488,26 @@ currency(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
 %FIXME
 date_range(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
   N=wf:atom([Name,X#field.name]),
-  Fmt  = "YYYY/MM/DD h:mm A",
+  Fmt  = "YYYY/MM/DD HH:mm",
   Incr = 60, 
   Actions = wf:f("$('#~s').daterangepicker({"
+                "startDate: moment(),"
+                "minDate: moment(),"
+                "endDate: moment().add(7, 'days'),"
+                "dateLimit: {days: 7},"
                 "timePicker: true,"
                 "format: '~s',"
+                "timePicker12Hour: false,"
+                "buttonClasses: ['ui compact button'],"
                 "timePickerIncrement: ~s"
+                ",ranges: {"
+                    %"'1 day' : [moment(), moment().add(1, 'days')],"
+                    "'2 days': [moment(), moment().add(2, 'days')],"
+                    "'3 days': [moment(), moment().add(3, 'days')],"
+                    "'4 days': [moment(), moment().add(4, 'days')],"
+                    "'5 days': [moment(), moment().add(5, 'days')],"
+                    "'6 days': [moment(), moment().add(6, 'days')]"
+                "}"
             "}, function(start, end, label) {"
                 "console.log(start.toISOString(), end.toISOString(), label);"
             "});",[N,Fmt,integer_to_list(Incr)]),
