@@ -6,6 +6,7 @@
 -export([init/2,validation/1,init_fields/2]).
 
 -export([         
+         %search_async/6,
          linked_select/6,
          select/6, 
          search_select/6,          
@@ -49,8 +50,10 @@ stop(_)    -> ok.
 q(#document{name=Name,fields=Fields,sections=Sections}=Doc) -> 
     Secs = [{S#sec.id,S#sec.m}||S<-Sections],
     {Attrs, Count} = lists:foldl(fun(#field{}=X,{Acc,Idx}) -> 
-                       Field =wf:atom([Name, X#field.name]), 
-                       Val = wf:q(Field),
+                       Field =wf:atom([Name, X#field.name]),
+                       Val = case X#field.type of 
+                              file -> extract_file(wf:q(Field)); 
+                              _ -> wf:q(Field) end,
                         case proplists:get_value(X#field.sec, Secs) of
                           undefined -> {Acc#{X#field.name => Val}, Idx};
                           M         -> {add_prop(M, Acc, [{X#field.name, Val}]), Idx}
@@ -65,6 +68,9 @@ q(#document{name=Name,fields=Fields,sections=Sections}=Doc) ->
                           M         -> {add_prop(M, Acc, [{Cat#cat.name, maps:to_list(Cats)}]), Idx+1}
                        end
                end, {#{},1}, Fields), Attrs.
+
+extract_file(<<"C:\\fakepath\\", N/binary>>) -> N;
+extract_file(N) -> N.
 
 %%FIXME
 add_prop(M, Maps, Prop) ->
@@ -103,7 +109,7 @@ new(Document,Object) ->
     %Style      = Document#document.style,
     Translator = proplists:get_value(translator, Default, fun(_,X) -> X end),
     InitActions= ?MODULE:init(Document, Object),             
-
+  
     #form{class=FormClass, id=wf:atom([Name]), method=post, action=Action, actions=InitActions, body=[
       stepwizard(Name, StepWizard, {Translator, Lang}),
       render_fields(Name, Fields, Sections, Object, proplists:get_value(fields, Default), {Translator, Lang}),
@@ -142,15 +148,15 @@ set_values(#document{}=Document, Maps) ->
   New = lists:foldr(fun(X,Acc) -> 
           Key = wf:atom([Name, X#field.name]), Val = maps:get(Key,Maps), Acc#{Key => Val} end, #{}, Fields),
   
-  Values = jsone:encode(maps:to_list(New)),
-  Action = wf:f("$('#~s').form('set values', ~s);", [Name, Values]),
-  Action1 = case catch set_dropdown_values(Document, Maps) of {'EXIT', Err} -> io:format("Error ~p~n", [Err]), []; Else -> Else end,
-  io:format("set values:~p~n", [Action]),
-  io:format("set dropdown values:~p~n", [Action1]),
+  Values  = jsone:encode(maps:to_list(New)),
+  Action  = wf:f("$('#~s').form('set values', ~s);", [Name, Values]),
+  Action1 = set_dropdown_values(Document, Maps),
+  %io:format("set values:~p~n", [Action]),
+  %io:format("set dropdown values:~p~n", [Action1]),
   wf:wire(Action++Action1).
 
 set_values(#document{}=Document, Key, Value) ->
-  Name = Document#document.name,
+  Name   = Document#document.name,
   Action = wf:f("$('#~s').form('set value', ~s, \"~s\");", [Name, Key, Value]),
   wf:wire(Action).
 
@@ -160,7 +166,8 @@ set_dropdown_values(#document{}=D,#{}=Maps) ->
   Fields = [Y||Y<-lists:flatten([begin case X of 
                 #field{} -> X;
                 #cat{} ->X#cat.fields
-              end end || X<-D#document.fields]), lists:member(Y#field.type, [select,multi_select,multi_search_select])],
+              end end || X<-D#document.fields]), 
+            lists:member(Y#field.type, [select,multi_select,multi_search_select])],
 
   lists:foldr(fun(X,Acc) -> 
           Field =wf:atom([Name, X#field.name]), 
@@ -175,8 +182,7 @@ set_dropdown_value(multi_search_select, Key, Value) -> set_dropdown_value(multi_
 set_dropdown_value(multi_select, Key, Value) ->wf:f("$('#~s').dropdown('set selected', \"~s\");",[Key,Value]);
 set_dropdown_value(select, Key, Value) ->wf:f("$('#~s_dropdown').dropdown('set selected', \"~s\");",[Key,Value]).
 
-sources(Name, Fields) ->
-    sources(Name, Fields, [], []).
+sources(Name, Fields) -> sources(Name, Fields, [], []).
 
 sources(_,[],[],Acc) -> lists:reverse(lists:flatten(Acc));
 sources(Name, [#cat{}=C|T], AccCat, Acc) ->
@@ -364,9 +370,9 @@ init_multi(X,N,Obj) ->
   wf:f(
        "$('#~s').dropdown();"
        "$('#~s').parent().dropdown({"
-                                  "onNoResults:function(v){ws.send(enc(tuple(atom('client'),tuple(bin('set_unknow_value'),bin('~s'),bin(v)))));}"
-                                  ",onAdd:function(v,t,$i){ws.send(enc(tuple(atom('client'),tuple(bin('add_value'),bin('~s'),bin(v)))));}"
-                                  ",onRemove:function(v,t,$i){ws.send(enc(tuple(atom('client'),tuple(bin('del_value'),bin('~s'),bin(v)))));}});"
+        "onNoResults:function(v){ws.send(enc(tuple(atom('client'),tuple(bin('set_unknow_value'),bin('~s'),bin(v)))));}"
+        ",onAdd:function(v,t,$i){ws.send(enc(tuple(atom('client'),tuple(bin('add_value'),bin('~s'),bin(v)))));}"
+        ",onRemove:function(v,t,$i){ws.send(enc(tuple(atom('client'),tuple(bin('del_value'),bin('~s'),bin(v)))));}});"
        ,
        [N,N,X#field.name,X#field.name,X#field.name
        ]).
@@ -384,31 +390,19 @@ init_checkbox(X,N,Obj) ->
   V = maps:get(N, Obj, <<>>),
   wf:f("$('#~s_checkbox').checkbox();"
        "$('#~s_checkbox').checkbox({onChecked:function(v,t,$i){if(v==undefined){$('#~s').val(true);}else{$('#~s').val(v);};ws.send(enc(tuple(atom('client'),tuple(bin('set_value'),bin('~s'),bin(v)))));},"
-                                  " onUnchecked:function(v,t,$i){if(v==undefined){$('#~s').val(false);}else{$('#~s').val(v);};ws.send(enc(tuple(atom('client'),tuple(bin('del_value'),bin('~s'),bin(v)))));}"
-                                  "});",
+       " onUnchecked:function(v,t,$i){if(v==undefined){$('#~s').val(false);}else{$('#~s').val(v);};ws.send(enc(tuple(atom('client'),tuple(bin('del_value'),bin('~s'),bin(v)))));}"
+       "});",
        [N,
         N,N,N,X#field.name,
         N,N,X#field.name]).
 
-
 init(#document{}=D,Obj) ->
-  InitFields = init_fields(D,Obj),
-  Validation = validation(D),  
-  init(#document{}=D,Obj, Validation++InitFields).
-
-init(#document{}=D,Obj, []) ->
-  Default = D#document.default,
-  case proplists:get_value(init, Default, undefined) of
-    undefined -> skip; Init -> 
-    wf:wire(Init) end;
-
+  init(#document{}=D,Obj, validation(D)++init_fields(D,Obj)).
+init(#document{}=D,Obj, []) -> [];
 init(#document{}=D,Obj, Init) ->
   Default = D#document.default,
   case proplists:get_value(init, Default, undefined) of
-    undefined -> wf:wire(Init); 
-    Init0 -> 
-    wf:info(?MODULE,"init:~p",[Init++Init0]),
-    wf:wire(Init ++ Init0) end.
+    undefined -> Init; Init0 -> Init ++ Init0 end.
 
 render_options(Opts, Lookup, Lang) ->
   [begin 
@@ -430,6 +424,57 @@ linked_select(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
    #i{class=[dropdown,icon]},
    #panel{class=[menu], body=Options}   
   ]}.
+
+
+% $('.ui.search')
+%   .search({
+%     type          : 'category',
+%     minCharacters : 3,
+%     apiSettings   : {
+%       onResponse: function(githubResponse) {
+%         var
+%           response = {
+%             results : {}
+%           }
+%         ;
+%         // translate GitHub API response to work with search
+%         $.each(githubResponse.items, function(index, item) {
+%           var
+%             language   = item.language || 'Unknown',
+%             maxResults = 8
+%           ;
+%           if(index >= maxResults) {
+%             return false;
+%           }
+%           // create new language category
+%           if(response.results[language] === undefined) {
+%             response.results[language] = {
+%               name    : language,
+%               results : []
+%             };
+%           }
+%           // add result to category
+%           response.results[language].results.push({
+%             title       : item.name,
+%             description : item.description,
+%             url         : item.html_url
+%           });
+%         });
+%         return response;
+%       },
+%       url: '//api.github.com/search/repositories?q={query}'
+%     }
+%   })
+% ;
+% <div class="ui search">
+%   <div class="ui left icon input">
+%     <input class="prompt" type="text" placeholder="Search GitHub">
+%     <i class="github icon"></i>
+%   </div>
+% </div>
+% search_async(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) -> %%ajax or websocket
+%   N = wf:atom([Name,X#field.name]),
+%   #panel{class=[]}.
 
 multi_search_select(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
   Options = [begin 
@@ -489,7 +534,7 @@ currency(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
 date_range(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
   N=wf:atom([Name,X#field.name]),
   Fmt  = "YYYY/MM/DD HH:mm",
-  Incr = 60, 
+  %Incr = 60, 
   Actions = wf:f("$('#~s').daterangepicker({"
                 "startDate: moment(),"
                 "minDate: moment(),"
@@ -498,8 +543,8 @@ date_range(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
                 "timePicker: true,"
                 "format: '~s',"
                 "timePicker12Hour: false,"
-                "buttonClasses: ['ui compact button'],"
-                "timePickerIncrement: ~s"
+                "buttonClasses: ['ui compact button']"
+                %"timePickerIncrement: ~s"
                 ",ranges: {"
                     %"'1 day' : [moment(), moment().add(1, 'days')],"
                     "'2 days': [moment(), moment().add(2, 'days')],"
@@ -510,7 +555,7 @@ date_range(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
                 "}"
             "}, function(start, end, label) {"
                 "console.log(start.toISOString(), end.toISOString(), label);"
-            "});",[N,Fmt,integer_to_list(Incr)]),
+            "});",[N,Fmt]),
   #input{ id=N, name=N, class=Class,
           actions=Actions,
           value=maps:get(X#field.name, Object, <<>>), 
@@ -520,11 +565,14 @@ date_range(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
 %FIXME
 date(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
   N=wf:atom([Name,X#field.name]),
-  Fmt = "YYYY/MM/DD h:mm A",
+  Fmt  = "YYYY/MM/DD HH:mm",
   Actions = wf:f("$('#~s').daterangepicker({"
+                "startDate: moment(),"
+                %"minDate: moment(),"
                 "singleDatePicker: true,"
                 "timePicker: true,"
-                "format: '~s'"
+                "format: '~s',"
+                "timePicker12Hour: false,"
             "}, function(start, end, label) {"
                 "console.log(start.toISOString(), end.toISOString(), label);"
             "});",[N,Fmt]),
@@ -605,27 +653,36 @@ search_menu(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
 
 file(Name, #field{}=X, ErrMsg, Class, Object, {Lookup, Lang}) ->
   Uid=wf:atom([Name,X#field.name]),
-  bind(ftp_open,  click,  wf:f("qi('~s').click(); e.preventDefault();",[Uid])),
-  bind(ftp_start, click, "ftp.start();"),
-  bind(ftp_stop,  click, "ftp.stop();"),
-  bind(ftp_cancel, click, wf:f("ftp.cancel();$('#~s').val('');",[Uid])),
-  Actions = wf:f("$('input:text, #ftp_open.ui.button', '.ui.action.input')"
+  FtpOpen=wf:temp_id(),
+  FtpStar=wf:temp_id(),
+  FtpStop=wf:temp_id(),
+  %FtpCancel=wf:temp_id(),
+  FtpText=wf:temp_id(),
+  FtpFile=wf:temp_id(), 
+  %bind(ftp_open,  click,  wf:f("qi('~s').click(); e.preventDefault();",[Uid])),
+  %bind(FtpStar, click, "ftp.start();"),
+  %bind(FtpStop,  click, "ftp.stop();"),
+  %bind(FtpCancel, click, wf:f("alert($('#~s').val());",[Uid])),
+  Actions = wf:f("$('input:text, #~s.ui.button', '.ui.action.input')"
                  ".on('click',function(e){$('input:file', $(e.target).parents()).click();});"
-                 "$('input:file', '.ui.action.input').on('change', function(e) {"
-                 "var name = e.target.files[0].name;"
-                 "$('input:text', $(e.target).parent()).val(name);"
-                 "ftp.init(this.files[0],1,$('input:text').val());"
-                 "$('#ftp_status').parent().show();"
-                 "});"
-                ,[]),
-  #panel{id=Uid, class=[ui,fluid,action,input], actions=Actions, body=[
-    #input{type=text, data_fields=[{readonly, <<>>}]}
-    ,#input{type= file, style=["display:none;"]}
+                 "$('input:file', '.ui.action.input').on('change', function(e)"
+                  " {"
+                     "var name = e.target.files[0].name;"
+                     "$('input:text', $(e.target).parent()).val(name);"
+                     "ftp.init(this.files[0],1,$('input:text').val());"
+                     "$('#ftp_status').parent().show();"
+                   "});"
+                 %"$('#ftp_status').on('change', function(e){console.log(e.val());});"
+                ,[FtpOpen]),
+  wf:info(?MODULE,"FILE ~p",[Actions]),
+  #panel{class=[ui,fluid,action,input], actions=Actions, body=[
+     #input{id=FtpText, type=text, data_fields=[{readonly, <<>>}]}
+    ,#input{id=Uid, type=file, style=["display:none;"]}
     ,#button{ class=[ui,green,icon,button], style=["display:none;width:5em;"], body=[#span{id=ftp_status,body=[]}]}
-    ,#button{id = ftp_open,class=[ui,green,icon,button], body=[#i{class=[file,icon]}]}
-    ,#button{id = ftp_start,class=[ui,green,icon,button], body=[#i{class=[upload,icon]}]}
-    ,#button{id = ftp_stop,class=[ui,green,icon,button], body=[#i{class=[stop,icon]}]}
-    ,#button{id = ftp_cancel,class=[ui,green,icon,button], body=[#i{class=[cancel,icon]}]}       
+    ,#button{id = FtpOpen,  class=[ui,green,icon,button], body=[#i{class=[file,icon]}]}
+    ,#button{id = FtpStar,  class=[ui,green,icon,button], body=[#i{class=[upload,icon]}],onclick="ftp.start();"}
+    ,#button{id = FtpStop,  class=[ui,green,icon,button], body=[#i{class=[stop,icon]}],onclick="ftp.stop();"}
+    %,#button{id = FtpCancel,class=[ui,green,icon,button], body=[#i{class=[cancel,icon]}],onclick=wf:f("ftp.cancel();",[])}       
   ]}.
 
 bind(Control,Event,Code) ->
